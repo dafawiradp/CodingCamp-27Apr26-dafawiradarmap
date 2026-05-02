@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SEFC – Expense &amp; Budget Visualizer</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <span class="brand-icon">💸</span>
+        <span class="brand-name">SEFC</span>
+        <span class="brand-sub">Expense &amp; Budget Visualizer</span>
+      </div>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle dark/light mode">
+        <span class="theme-icon" id="themeIcon">🌙</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main class="app-main">
+
+    <!-- Balance Card -->
+    <section class="card balance-card" aria-label="Total balance">
+      <p class="balance-label">Total Balance</p>
+      <h1 class="balance-amount" id="totalBalance">$0.00</h1>
+      <p class="balance-sub" id="txCount">0 transactions</p>
+    </section>
+
+    <!-- Two-column grid: Form + Chart -->
+    <div class="grid-two">
+
+      <!-- Add Transaction Form -->
+      <section class="card form-card" aria-label="Add transaction">
+        <h2 class="card-title">Add Transaction</h2>
+
+        <form id="txForm" novalidate>
+          <div class="form-group">
+            <label for="itemName">Item Name</label>
+            <input
+              type="text"
+              id="itemName"
+              placeholder="e.g. Coffee, Uber ride…"
+              autocomplete="off"
+              maxlength="60"
+            />
+            <span class="field-error" id="nameError"></span>
+          </div>
+
+          <div class="form-group">
+            <label for="amount">Amount ($)</label>
+            <input
+              type="number"
+              id="amount"
+              placeholder="0.00"
+              min="0.01"
+              step="0.01"
+            />
+            <span class="field-error" id="amountError"></span>
+          </div>
+
+          <div class="form-group">
+            <label for="category">Category</label>
+            <div class="select-wrapper">
+              <select id="category">
+                <option value="">— Select category —</option>
+                <option value="Food">🍔 Food</option>
+                <option value="Transport">🚗 Transport</option>
+                <option value="Fun">🎉 Fun</option>
+              </select>
+            </div>
+            <span class="field-error" id="categoryError"></span>
+          </div>
+
+          <!-- Custom category row -->
+          <div class="form-group custom-cat-row" id="customCatRow" style="display:none;">
+            <label for="customCategory">New Category Name</label>
+            <div class="custom-cat-input-row">
+              <input
+                type="text"
+                id="customCategory"
+                placeholder="e.g. Health, Shopping…"
+                maxlength="30"
+              />
+              <button type="button" class="btn-add-cat" id="addCatBtn" title="Add category">+</button>
+            </div>
+            <span class="field-error" id="customCatError"></span>
+          </div>
+
+          <button type="button" class="btn-link" id="toggleCustomCat">
+            + Add custom category
+          </button>
+
+          <button type="submit" class="btn-primary" id="submitBtn">
+            Add Transaction
+          </button>
+        </form>
+      </section>
+
+      <!-- Pie Chart -->
+      <section class="card chart-card" aria-label="Spending chart">
+        <h2 class="card-title">Spending by Category</h2>
+        <div class="chart-container">
+          <canvas id="spendingChart" aria-label="Pie chart of spending by category" role="img"></canvas>
+          <p class="chart-empty" id="chartEmpty">No data yet. Add a transaction!</p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Transaction List -->
+    <section class="card list-card" aria-label="Transaction list">
+      <div class="list-header">
+        <h2 class="card-title">Transactions</h2>
+        <div class="list-controls">
+          <label for="sortSelect" class="sr-only">Sort by</label>
+          <select id="sortSelect" class="sort-select" title="Sort transactions">
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="amount-desc">Amount ↓</option>
+            <option value="amount-asc">Amount ↑</option>
+            <option value="category-asc">Category A–Z</option>
+          </select>
+        </div>
+      </div>
+
+      <ul class="tx-list" id="txList" aria-live="polite">
+        <!-- Transactions injected here -->
+      </ul>
+
+      <p class="list-empty" id="listEmpty">No transactions yet. Add one above!</p>
+    </section>
+
+  </main>
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="app-footer">
+    <p>SEFC &copy; 2026 &mdash; All data stored locally in your browser.</p>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
