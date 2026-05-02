@@ -18,9 +18,21 @@
         <span class="brand-name">SEFC</span>
         <span class="brand-sub">Expense &amp; Budget Visualizer</span>
       </div>
-      <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle dark/light mode">
-        <span class="theme-icon" id="themeIcon">🌙</span>
-      </button>
+      <!-- Currency Toggle -->
+      <div class="header-controls">
+        <div class="currency-toggle" role="group" aria-label="Select currency">
+          <button class="currency-btn active" id="btnIDR" data-currency="IDR" title="Indonesian Rupiah">
+            Rp <span class="currency-label">IDR</span>
+          </button>
+          <button class="currency-btn" id="btnUSD" data-currency="USD" title="US Dollar">
+            $ <span class="currency-label">USD</span>
+          </button>
+        </div>
+
+        <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle dark/light mode">
+          <span class="theme-icon" id="themeIcon">🌙</span>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -32,6 +44,7 @@
       <p class="balance-label">Total Balance</p>
       <h1 class="balance-amount" id="totalBalance">$0.00</h1>
       <p class="balance-sub" id="txCount">0 transactions</p>
+      <p class="balance-rate" id="balanceRate"></p>
     </section>
 
     <!-- Two-column grid: Form + Chart -->
@@ -55,13 +68,13 @@
           </div>
 
           <div class="form-group">
-            <label for="amount">Amount ($)</label>
+            <label for="amount" id="amountLabel">Amount (Rp)</label>
             <input
               type="number"
               id="amount"
-              placeholder="0.00"
-              min="0.01"
-              step="0.01"
+              placeholder="e.g. 50000"
+              min="1"
+              step="1"
             />
             <span class="field-error" id="amountError"></span>
           </div>

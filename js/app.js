@@ -10,15 +10,24 @@
  *  - Custom categories
  *  - Sort transactions (newest, oldest, amount ↑↓, category A-Z)
  *  - Dark / light mode toggle
+ *  - Multi-currency: IDR (base) ↔ USD with fixed conversion rate
  */
 
 /* ============================================================
    CONSTANTS & STATE
    ============================================================ */
 
-const STORAGE_KEY_TX   = 'sefc_transactions';
-const STORAGE_KEY_CATS = 'sefc_categories';
-const STORAGE_KEY_THEME = 'sefc_theme';
+const STORAGE_KEY_TX       = 'sefc_transactions';
+const STORAGE_KEY_CATS     = 'sefc_categories';
+const STORAGE_KEY_THEME    = 'sefc_theme';
+const STORAGE_KEY_CURRENCY = 'sefc_currency';
+
+/**
+ * Fixed conversion rate.
+ * All amounts are stored in IDR (base currency).
+ * 1 USD = IDR_PER_USD
+ */
+const IDR_PER_USD = 15000;
 
 /** Default categories always available */
 const DEFAULT_CATEGORIES = ['Food', 'Transport', 'Fun'];
@@ -36,10 +45,11 @@ const CATEGORY_PALETTE = [
 ];
 
 /** App state */
-let transactions = [];
-let categories   = [...DEFAULT_CATEGORIES];
-let sortMode     = 'date-desc';
-let spendingChart = null;
+let transactions    = [];
+let categories      = [...DEFAULT_CATEGORIES];
+let sortMode        = 'date-desc';
+let currentCurrency = 'IDR'; // 'IDR' | 'USD'
+let spendingChart   = null;
 
 /* ============================================================
    DOM REFERENCES
@@ -47,9 +57,11 @@ let spendingChart = null;
 
 const totalBalanceEl  = document.getElementById('totalBalance');
 const txCountEl       = document.getElementById('txCount');
+const balanceRateEl   = document.getElementById('balanceRate');
 const txForm          = document.getElementById('txForm');
 const itemNameInput   = document.getElementById('itemName');
 const amountInput     = document.getElementById('amount');
+const amountLabel     = document.getElementById('amountLabel');
 const categorySelect  = document.getElementById('category');
 const nameError       = document.getElementById('nameError');
 const amountError     = document.getElementById('amountError');
@@ -66,6 +78,62 @@ const customCatRow    = document.getElementById('customCatRow');
 const customCatInput  = document.getElementById('customCategory');
 const addCatBtn       = document.getElementById('addCatBtn');
 const customCatError  = document.getElementById('customCatError');
+const btnIDR          = document.getElementById('btnIDR');
+const btnUSD          = document.getElementById('btnUSD');
+
+/* ============================================================
+   CURRENCY UTILITIES
+   ============================================================ */
+
+/**
+ * Format a raw IDR amount for display in the active currency.
+ * @param {number} amountIDR  - Amount stored in IDR (base)
+ * @param {string} [currency] - 'IDR' | 'USD' (defaults to currentCurrency)
+ * @returns {string}
+ */
+function formatCurrency(amountIDR, currency) {
+  const cur = currency || currentCurrency;
+  const display = convertCurrency(amountIDR, cur);
+
+  if (cur === 'IDR') {
+    // Format: Rp10.000 (id-ID locale uses dots as thousands separator)
+    return 'Rp' + display.toLocaleString('id-ID', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    });
+  } else {
+    // Format: $10,000.00
+    return '$' + display.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+}
+
+/**
+ * Convert a stored IDR amount to the target display currency.
+ * @param {number} amountIDR
+ * @param {string} currency - 'IDR' | 'USD'
+ * @returns {number}
+ */
+function convertCurrency(amountIDR, currency) {
+  if (currency === 'USD') {
+    return amountIDR / IDR_PER_USD;
+  }
+  return amountIDR; // already IDR
+}
+
+/**
+ * Convert a user-entered amount (in currentCurrency) to IDR for storage.
+ * @param {number} inputAmount
+ * @returns {number} amount in IDR
+ */
+function toIDR(inputAmount) {
+  if (currentCurrency === 'USD') {
+    return inputAmount * IDR_PER_USD;
+  }
+  return inputAmount;
+}
 
 /* ============================================================
    PERSISTENCE HELPERS
@@ -73,9 +141,10 @@ const customCatError  = document.getElementById('customCatError');
 
 function loadData() {
   try {
-    const txRaw   = localStorage.getItem(STORAGE_KEY_TX);
-    const catRaw  = localStorage.getItem(STORAGE_KEY_CATS);
-    const themeRaw = localStorage.getItem(STORAGE_KEY_THEME);
+    const txRaw       = localStorage.getItem(STORAGE_KEY_TX);
+    const catRaw      = localStorage.getItem(STORAGE_KEY_CATS);
+    const themeRaw    = localStorage.getItem(STORAGE_KEY_THEME);
+    const currencyRaw = localStorage.getItem(STORAGE_KEY_CURRENCY);
 
     transactions = txRaw  ? JSON.parse(txRaw)  : [];
     categories   = catRaw ? JSON.parse(catRaw) : [...DEFAULT_CATEGORIES];
@@ -90,10 +159,15 @@ function loadData() {
       document.documentElement.setAttribute('data-theme', themeRaw);
       updateThemeIcon(themeRaw);
     }
+
+    // Apply saved currency (default IDR)
+    currentCurrency = (currencyRaw === 'USD') ? 'USD' : 'IDR';
+
   } catch (e) {
     console.warn('SEFC: Failed to load data from localStorage.', e);
-    transactions = [];
-    categories   = [...DEFAULT_CATEGORIES];
+    transactions    = [];
+    categories      = [...DEFAULT_CATEGORIES];
+    currentCurrency = 'IDR';
   }
 }
 
@@ -103,6 +177,10 @@ function saveTransactions() {
 
 function saveCategories() {
   localStorage.setItem(STORAGE_KEY_CATS, JSON.stringify(categories));
+}
+
+function saveCurrency() {
+  localStorage.setItem(STORAGE_KEY_CURRENCY, currentCurrency);
 }
 
 /* ============================================================
@@ -120,10 +198,18 @@ function getCategoryColor(category) {
    ============================================================ */
 
 function updateBalance() {
-  const total = transactions.reduce((sum, tx) => sum + tx.amount, 0);
-  totalBalanceEl.textContent = formatCurrency(total);
+  const totalIDR = transactions.reduce((sum, tx) => sum + tx.amount, 0);
+  totalBalanceEl.textContent = formatCurrency(totalIDR);
+
   const count = transactions.length;
-  txCountEl.textContent = `${count} transaction${count !== 1 ? 's' : ''}`;
+  txCountEl.textContent = count + ' transaction' + (count !== 1 ? 's' : '');
+
+  // Show conversion rate hint
+  if (currentCurrency === 'USD') {
+    balanceRateEl.textContent = '1 USD = Rp' + IDR_PER_USD.toLocaleString('id-ID');
+  } else {
+    balanceRateEl.textContent = '1 USD = Rp' + IDR_PER_USD.toLocaleString('id-ID');
+  }
 }
 
 /* ============================================================
@@ -131,19 +217,27 @@ function updateBalance() {
    ============================================================ */
 
 function buildChartData() {
-  const totals = {};
-  transactions.forEach(tx => {
-    totals[tx.category] = (totals[tx.category] !== undefined ? totals[tx.category] : 0) + tx.amount;
+  // Accumulate totals in IDR, then convert for display
+  const totalsIDR = {};
+  transactions.forEach(function(tx) {
+    totalsIDR[tx.category] = (totalsIDR[tx.category] !== undefined
+      ? totalsIDR[tx.category]
+      : 0) + tx.amount;
   });
-  const labels = Object.keys(totals);
-  const data   = Object.values(totals);
+
+  const labels = Object.keys(totalsIDR);
+  // Store raw IDR values in chart data; tooltip will format them
+  const data   = Object.values(totalsIDR);
   const colors = labels.map(getCategoryColor);
-  return { labels, data, colors };
+  return { labels: labels, data: data, colors: colors };
 }
 
 function renderChart() {
-  const { labels, data, colors } = buildChartData();
-  const hasData = data.length > 0;
+  var chartData = buildChartData();
+  var labels = chartData.labels;
+  var data   = chartData.data;
+  var colors = chartData.colors;
+  var hasData = data.length > 0;
 
   chartEmptyEl.style.display = hasData ? 'none' : 'block';
   chartCanvas.style.display  = hasData ? 'block' : 'none';
@@ -156,46 +250,52 @@ function renderChart() {
     return;
   }
 
+  var legendColor = getComputedStyle(document.documentElement)
+    .getPropertyValue('--text-secondary').trim() || '#8b90b0';
+
   if (spendingChart) {
-    spendingChart.data.labels          = labels;
-    spendingChart.data.datasets[0].data   = data;
-    spendingChart.data.datasets[0].backgroundColor = colors;
-    spendingChart.data.datasets[0].borderColor      = colors;
+    spendingChart.data.labels                          = labels;
+    spendingChart.data.datasets[0].data                = data;
+    spendingChart.data.datasets[0].backgroundColor     = colors.map(function(c) { return c + 'cc'; });
+    spendingChart.data.datasets[0].borderColor         = colors;
+    spendingChart.options.plugins.legend.labels.color  = legendColor;
     spendingChart.update();
   } else {
     spendingChart = new Chart(chartCanvas, {
       type: 'doughnut',
       data: {
-        labels,
+        labels: labels,
         datasets: [{
-          data,
-          backgroundColor: colors.map(c => c + 'cc'), // slight transparency
+          data:            data,
+          backgroundColor: colors.map(function(c) { return c + 'cc'; }),
           borderColor:     colors,
           borderWidth:     2,
           hoverOffset:     8,
         }],
       },
       options: {
-        responsive: true,
+        responsive:          true,
         maintainAspectRatio: true,
-        cutout: '60%',
+        cutout:              '60%',
         plugins: {
           legend: {
             position: 'bottom',
             labels: {
-              color:     getComputedStyle(document.documentElement)
-                           .getPropertyValue('--text-secondary').trim() || '#8b90b0',
-              font:      { size: 12, family: 'Segoe UI, system-ui, sans-serif' },
-              padding:   14,
-              boxWidth:  12,
-              boxHeight: 12,
+              color:         legendColor,
+              font:          { size: 12, family: 'Segoe UI, system-ui, sans-serif' },
+              padding:       14,
+              boxWidth:      12,
+              boxHeight:     12,
               usePointStyle: true,
-              pointStyle: 'circle',
+              pointStyle:    'circle',
             },
           },
           tooltip: {
             callbacks: {
-              label: ctx => ` ${ctx.label}: ${formatCurrency(ctx.parsed)}`,
+              // ctx.parsed is the raw IDR value stored in chart data
+              label: function(ctx) {
+                return ' ' + ctx.label + ': ' + formatCurrency(ctx.parsed);
+              },
             },
           },
         },
@@ -209,25 +309,25 @@ function renderChart() {
    ============================================================ */
 
 function getSortedTransactions() {
-  const list = [...transactions];
+  var list = transactions.slice();
   switch (sortMode) {
     case 'date-asc':
-      return list.sort((a, b) => a.id - b.id);
+      return list.sort(function(a, b) { return a.id - b.id; });
     case 'date-desc':
-      return list.sort((a, b) => b.id - a.id);
+      return list.sort(function(a, b) { return b.id - a.id; });
     case 'amount-desc':
-      return list.sort((a, b) => b.amount - a.amount);
+      return list.sort(function(a, b) { return b.amount - a.amount; });
     case 'amount-asc':
-      return list.sort((a, b) => a.amount - b.amount);
+      return list.sort(function(a, b) { return a.amount - b.amount; });
     case 'category-asc':
-      return list.sort((a, b) => a.category.localeCompare(b.category));
+      return list.sort(function(a, b) { return a.category.localeCompare(b.category); });
     default:
       return list;
   }
 }
 
 function renderTransactions() {
-  const sorted = getSortedTransactions();
+  var sorted = getSortedTransactions();
   txListEl.innerHTML = '';
 
   if (sorted.length === 0) {
@@ -237,22 +337,22 @@ function renderTransactions() {
 
   listEmptyEl.style.display = 'none';
 
-  sorted.forEach(tx => {
-    const li = document.createElement('li');
-    li.className = 'tx-item';
+  sorted.forEach(function(tx) {
+    var li    = document.createElement('li');
+    li.className  = 'tx-item';
     li.dataset.id = tx.id;
 
-    const color = getCategoryColor(tx.category);
+    var color = getCategoryColor(tx.category);
 
-    li.innerHTML = `
-      <span class="tx-cat-dot" style="background:${color};" aria-hidden="true"></span>
-      <div class="tx-info">
-        <div class="tx-name" title="${escapeHtml(tx.name)}">${escapeHtml(tx.name)}</div>
-        <div class="tx-cat-label">${escapeHtml(tx.category)}</div>
-      </div>
-      <span class="tx-amount">-${formatCurrency(tx.amount)}</span>
-      <button class="tx-delete" data-id="${tx.id}" aria-label="Delete ${escapeHtml(tx.name)}" title="Delete">✕</button>
-    `;
+    // tx.amount is always stored in IDR; formatCurrency converts for display
+    li.innerHTML =
+      '<span class="tx-cat-dot" style="background:' + color + ';" aria-hidden="true"></span>' +
+      '<div class="tx-info">' +
+        '<div class="tx-name" title="' + escapeHtml(tx.name) + '">' + escapeHtml(tx.name) + '</div>' +
+        '<div class="tx-cat-label">' + escapeHtml(tx.category) + '</div>' +
+      '</div>' +
+      '<span class="tx-amount">-' + formatCurrency(tx.amount) + '</span>' +
+      '<button class="tx-delete" data-id="' + tx.id + '" aria-label="Delete ' + escapeHtml(tx.name) + '" title="Delete">✕</button>';
 
     txListEl.appendChild(li);
   });
@@ -262,17 +362,20 @@ function renderTransactions() {
    ADD TRANSACTION
    ============================================================ */
 
-function addTransaction(name, amount, category) {
-  const tx = {
+function addTransaction(name, inputAmount, category) {
+  // Always store in IDR regardless of active currency
+  var amountIDR = toIDR(parseFloat(inputAmount));
+
+  var tx = {
     id:       Date.now(),
     name:     name.trim(),
-    amount:   parseFloat(amount),
+    amount:   amountIDR,   // stored in IDR
     category: category,
   };
   transactions.push(tx);
   saveTransactions();
   refreshUI();
-  showToast(`"${tx.name}" added!`, 'success');
+  showToast('"' + tx.name + '" added!', 'success');
 }
 
 /* ============================================================
@@ -280,13 +383,13 @@ function addTransaction(name, amount, category) {
    ============================================================ */
 
 function deleteTransaction(id) {
-  const idx = transactions.findIndex(tx => tx.id === id);
+  var idx = transactions.findIndex(function(tx) { return tx.id === id; });
   if (idx === -1) return;
-  const name = transactions[idx].name;
+  var name = transactions[idx].name;
   transactions.splice(idx, 1);
   saveTransactions();
   refreshUI();
-  showToast(`"${name}" removed.`, 'info');
+  showToast('"' + name + '" removed.', 'info');
 }
 
 /* ============================================================
@@ -300,6 +403,50 @@ function refreshUI() {
 }
 
 /* ============================================================
+   CURRENCY SWITCHER
+   ============================================================ */
+
+function setCurrency(currency) {
+  currentCurrency = currency;
+  saveCurrency();
+  updateCurrencyUI();
+  refreshUI();
+}
+
+function updateCurrencyUI() {
+  // Toggle active class on buttons
+  if (currentCurrency === 'IDR') {
+    btnIDR.classList.add('active');
+    btnUSD.classList.remove('active');
+    amountLabel.textContent = 'Amount (Rp)';
+    amountInput.placeholder = 'e.g. 50000';
+    amountInput.step        = '1';
+    amountInput.min         = '1';
+  } else {
+    btnUSD.classList.add('active');
+    btnIDR.classList.remove('active');
+    amountLabel.textContent = 'Amount ($)';
+    amountInput.placeholder = 'e.g. 3.50';
+    amountInput.step        = '0.01';
+    amountInput.min         = '0.01';
+  }
+}
+
+btnIDR.addEventListener('click', function() {
+  if (currentCurrency !== 'IDR') {
+    setCurrency('IDR');
+    showToast('Switched to Indonesian Rupiah (Rp)', 'info');
+  }
+});
+
+btnUSD.addEventListener('click', function() {
+  if (currentCurrency !== 'USD') {
+    setCurrency('USD');
+    showToast('Switched to US Dollar ($)', 'info');
+  }
+});
+
+/* ============================================================
    FORM VALIDATION & SUBMISSION
    ============================================================ */
 
@@ -310,12 +457,11 @@ function clearErrors() {
 }
 
 function validateForm() {
-  let valid = true;
+  var valid    = true;
+  var name     = itemNameInput.value.trim();
+  var amount   = amountInput.value.trim();
+  var category = categorySelect.value;
   clearErrors();
-
-  const name     = itemNameInput.value.trim();
-  const amount   = amountInput.value.trim();
-  const category = categorySelect.value;
 
   if (!name) {
     nameError.textContent = 'Item name is required.';
@@ -335,7 +481,7 @@ function validateForm() {
   return valid;
 }
 
-txForm.addEventListener('submit', e => {
+txForm.addEventListener('submit', function(e) {
   e.preventDefault();
   if (!validateForm()) return;
 
@@ -345,7 +491,6 @@ txForm.addEventListener('submit', e => {
     categorySelect.value
   );
 
-  // Reset form
   txForm.reset();
   clearErrors();
   itemNameInput.focus();
@@ -355,10 +500,10 @@ txForm.addEventListener('submit', e => {
    DELETE – event delegation on list
    ============================================================ */
 
-txListEl.addEventListener('click', e => {
-  const btn = e.target.closest('.tx-delete');
+txListEl.addEventListener('click', function(e) {
+  var btn = e.target.closest('.tx-delete');
   if (!btn) return;
-  const id = parseInt(btn.dataset.id, 10);
+  var id = parseInt(btn.dataset.id, 10);
   deleteTransaction(id);
 });
 
@@ -366,7 +511,7 @@ txListEl.addEventListener('click', e => {
    SORT
    ============================================================ */
 
-sortSelect.addEventListener('change', () => {
+sortSelect.addEventListener('change', function() {
   sortMode = sortSelect.value;
   renderTransactions();
 });
@@ -375,15 +520,15 @@ sortSelect.addEventListener('change', () => {
    CUSTOM CATEGORIES
    ============================================================ */
 
-toggleCustomCat.addEventListener('click', () => {
-  const isVisible = customCatRow.style.display !== 'none';
-  customCatRow.style.display = isVisible ? 'none' : 'flex';
+toggleCustomCat.addEventListener('click', function() {
+  var isVisible = customCatRow.style.display !== 'none';
+  customCatRow.style.display  = isVisible ? 'none' : 'flex';
   toggleCustomCat.textContent = isVisible ? '+ Add custom category' : '− Hide custom category';
   if (!isVisible) customCatInput.focus();
 });
 
-addCatBtn.addEventListener('click', () => {
-  const raw = customCatInput.value.trim();
+addCatBtn.addEventListener('click', function() {
+  var raw = customCatInput.value.trim();
   customCatError.textContent = '';
 
   if (!raw) {
@@ -391,8 +536,9 @@ addCatBtn.addEventListener('click', () => {
     return;
   }
 
-  // Case-insensitive duplicate check
-  const duplicate = categories.some(c => c.toLowerCase() === raw.toLowerCase());
+  var duplicate = categories.some(function(c) {
+    return c.toLowerCase() === raw.toLowerCase();
+  });
   if (duplicate) {
     customCatError.textContent = 'That category already exists.';
     return;
@@ -403,26 +549,23 @@ addCatBtn.addEventListener('click', () => {
   addCategoryOption(raw);
   categorySelect.value = raw;
   customCatInput.value = '';
-  showToast(`Category "${raw}" added!`, 'success');
+  showToast('Category "' + raw + '" added!', 'success');
 });
 
-/** Append a new <option> to the category <select> */
 function addCategoryOption(name) {
-  const opt = document.createElement('option');
+  var opt         = document.createElement('option');
   opt.value       = name;
   opt.textContent = name;
   categorySelect.appendChild(opt);
 }
 
-/** Rebuild the category <select> from the current categories array */
 function rebuildCategorySelect() {
-  // Keep the placeholder
   while (categorySelect.options.length > 1) {
     categorySelect.remove(1);
   }
-  const emojiMap = { Food: '🍔', Transport: '🚗', Fun: '🎉' };
-  categories.forEach(cat => {
-    const opt = document.createElement('option');
+  var emojiMap = { Food: '🍔', Transport: '🚗', Fun: '🎉' };
+  categories.forEach(function(cat) {
+    var opt         = document.createElement('option');
     opt.value       = cat;
     opt.textContent = (emojiMap[cat] ? emojiMap[cat] + ' ' : '') + cat;
     categorySelect.appendChild(opt);
@@ -433,16 +576,15 @@ function rebuildCategorySelect() {
    DARK / LIGHT MODE TOGGLE
    ============================================================ */
 
-themeToggle.addEventListener('click', () => {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next    = current === 'dark' ? 'light' : 'dark';
+themeToggle.addEventListener('click', function() {
+  var current = document.documentElement.getAttribute('data-theme');
+  var next    = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem(STORAGE_KEY_THEME, next);
   updateThemeIcon(next);
 
-  // Re-render chart so legend colours update
   if (spendingChart) {
-    const legendColor = getComputedStyle(document.documentElement)
+    var legendColor = getComputedStyle(document.documentElement)
       .getPropertyValue('--text-secondary').trim();
     spendingChart.options.plugins.legend.labels.color = legendColor;
     spendingChart.update();
@@ -457,43 +599,34 @@ function updateThemeIcon(theme) {
    TOAST NOTIFICATIONS
    ============================================================ */
 
-let toastTimer = null;
+var toastTimer = null;
 
-function showToast(message, type = 'info') {
-  // Remove existing toast if any
-  const existing = document.querySelector('.toast');
+function showToast(message, type) {
+  type = type || 'info';
+  var existing = document.querySelector('.toast');
   if (existing) existing.remove();
   if (toastTimer) clearTimeout(toastTimer);
 
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
+  var toast = document.createElement('div');
+  toast.className = 'toast ' + type;
   toast.textContent = message;
   toast.setAttribute('role', 'status');
   toast.setAttribute('aria-live', 'polite');
   document.body.appendChild(toast);
 
-  // Trigger animation
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => toast.classList.add('show'));
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() { toast.classList.add('show'); });
   });
 
-  toastTimer = setTimeout(() => {
+  toastTimer = setTimeout(function() {
     toast.classList.remove('show');
-    setTimeout(() => toast.remove(), 350);
+    setTimeout(function() { toast.remove(); }, 350);
   }, 2500);
 }
 
 /* ============================================================
    UTILITIES
    ============================================================ */
-
-function formatCurrency(value) {
-  return new Intl.NumberFormat('en-US', {
-    style:    'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-  }).format(value);
-}
 
 function escapeHtml(str) {
   return String(str)
@@ -511,6 +644,7 @@ function escapeHtml(str) {
 function init() {
   loadData();
   rebuildCategorySelect();
+  updateCurrencyUI();
   refreshUI();
 }
 
